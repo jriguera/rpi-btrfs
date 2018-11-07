@@ -82,18 +82,24 @@ create_btrfs_subvolume() {
     local noauto="${4}"
     local mountpoint="${5}"
 
-    echo "* Creating subvolume ${name} ..."
+    echo "* Checking if subvolume ${name} exists ..."
     (
         set -ex
-        btrfs subvolume create "${root}/${name}"
+        btrfs subvolume show "${root}/${name}"
     ) &
     wait $!
     rvalue=$?
-    if [ "${rvalue}" -eq "0" ] && [ -n "${mountpoint}" ]
+    if [ "${rvalue}" -ne "0" ]
     then
-        create_btrfs_mountpoint_fstab "${label}" "${mountpoint}" "${noauto}" "${name}"
+        echo "* Creating subvolume ${name} ..."
+        (
+            set -ex
+            btrfs subvolume create "${root}/${name}"
+        ) &
+        wait $!
         rvalue=$?
     fi
+    [ -n "${mountpoint}" ] && create_btrfs_mountpoint_fstab "${label}" "${mountpoint}" "${noauto}" "${name}"
     sync
     return ${rvalue}
 }
