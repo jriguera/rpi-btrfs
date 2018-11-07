@@ -43,6 +43,7 @@ create_btrfs_mountpoint_fstab() {
     local noauto="${3}"
     local subvol="${4}"
 
+    local entry
     local opts="${MOUNT_OPTS}"
     [ "${noauto}" -eq "1" ] && opts="${opts},noauto"
 
@@ -54,13 +55,21 @@ create_btrfs_mountpoint_fstab() {
         echo "* Adding ${mountpoint} to /etc/fstab ..."
     fi
     mkdir -p "${mountpoint}"
-    if [ -z "${subvol}" ]
+    entry=$(awk -v m="${mountpoint}" -v l="LABEL=${label}" '!/(^#.*$)|(^\s*$)/{
+        if ($3 == "btrfs" && m == $2 && l == $1) print $0;
+    }' /etc/fstab)
+    if [ -z "${entry}" ]
     then
-        echo "# Btrfs ${label}" >>/etc/fstab
-        echo "LABEL=${label}    ${mountpoint}    btrfs    ${opts}  0 0" >>/etc/fstab
+        if [ -z "${subvol}" ]
+        then
+            echo "# Btrfs ${label}" >>/etc/fstab
+            echo "LABEL=${label}    ${mountpoint}    btrfs    ${opts}  0 2" >>/etc/fstab
+        else
+            echo "# Btrfs ${label}/${subvol}" >>/etc/fstab
+            echo "LABEL=${label}    ${mountpoint}    btrfs    ${opts},subvol=/${subvol}  0 0" >>/etc/fstab
+        fi
     else
-        echo "# Btrfs ${label}/${subvol}" >>/etc/fstab
-        echo "LABEL=${label}    ${mountpoint}    btrfs    ${opts},subvol=/${subvol}  0 0" >>/etc/fstab
+        echo "* Entry already defined in fstab!"
     fi
     return 0
 }
@@ -191,6 +200,8 @@ mkfs_btrfs() {
         wait $! && create_btrfs_mountpoint_fstab "${label}" "${mountpoint}" "${noauto}"
         return $?
     else
+        # Ensure the mountpoint is defined
+        create_btrfs_mountpoint_fstab "${label}" "${mountpoint}" "${noauto}"
         currentdevice=$(btrfs filesystem show "${label}" 2>/dev/null | awk -v dev="${device}" '/devid/{ if (dev == $NF) print $NF }')
         if [ "${currentdevice}" != "${device}" ]
         then
