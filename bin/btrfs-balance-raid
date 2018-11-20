@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+set -o pipefail  # exit if pipe command fails
+[ -z "$DEBUG" ] || set -x
+
+PROGRAM=${PROGRAM:-$(basename "${BASH_SOURCE[0]}")}
+PROGRAM_LOCK=${PROGRAM_LOCK:-/tmp/$PROGRAM.lock}
+
+usage() {
+    cat <<EOF
+Usage:
+    $PROGRAM [-h] <mountpoint> <label>
+
+This program tries to rebalance the Btrfs the data. It is assuming the device
+is already formated for the RAID 1 group and for some reason it got unbalanced, e.g.
+temp disconnection.
+
+(c) Jose Riguera, 2019 <jriguera@gmail.com>
+EOF
+}
+
+
+
+balance_btrfs() {
+    local root="${1}"
+    local label="${2}"
+
+    echo "* Performing Btrfs (re)balancing on ${root} ..."
+    (
+        set -ex
+        sync
+        btrfs balance start --full-balance "${root}"
+    ) &
+    wait $!
+    rvalue=$?
+    if [ "${rvalue}" -ne "0" ]
+    then
+        echo "* ERROR, Btrfs balance not successful!"
+        return 1
+    fi
+    # Clean stats
+    echo "* Reseting device stats on ${root} ..."
+    btrfs device stats -z "${root}"
+    return ${rvalue}
+}
+
+
+fix_btrfs() {
+    local label="${1}"
+    local mountpoint="${2}"
+
+    local devices=()
+
+    # Scan all devices
+    btrfs device scan | awk '{ print "* "$0}'
+    echo "* Device information with label '${label}'"
+    blkid -n btrfs -t LABEL="${label}"
+    echo "* Btrfs device stats for '${mountpoint}'"
+    btrfs device stats "${mountpoint}"
+    echo "* Filesystem usage of '${mountpoint}'"
+    btrfs filesystem usage "${mountpoint}"
+
+    devices=($(blkid -n btrfs -o device -t LABEL="${label}"))
+    if [ "${#devices[@]}" -lt "2" ]
+        echo "* ERROR, at least 2 devices are needed for RAID1!"
+        return 1
+    else
+        balance_btrfs "${mountpoint}" "${label}"
+        return $?
+    fi
+}
+
+
+run() {
+    local label="${1}"
+    local mountpoint="${2}"
+
+    local rvalue=0
+
+    local lock="${PROGRAM_LOCK}"
+    local mypid=$$
+
+    if [ -r "${lock}" ]
+    then
+        echo "* Wait, wait ... It seems there is a lock file '${lock}'. Checking ..."
+        pid=$(cat "${lock}")
+        if ps -p ${pid} > /dev/null 2>&1
+        then
+            echo "* There is a rebalance process still running on with pid ${pid}."
+            return 0
+        else
+            echo "* Lock file '${lock}' exists, but no process wid pid ${pid}"
+            rm -f "${lock}"
+            echo "* Removed Lock file '${lock}'. Ready for next time!"
+        fi
+    else
+        echo ${mypid} > "${lock}" 2>/dev/null
+        rvalue=$?
+        pid=$(cat "${lock}" 2>/dev/null)
+        if [ "$?" -ne "0" ] || [ "${rvalue}" -ne "0" ] || [ "${pid}" -ne "${mypid}" ]
+        then
+            error_log "Something went wrong writing pid to lock file '${lock}'." ${rvalue}
+        else
+            trap "finish ${lock}" SIGINT SIGTERM SIGKILL
+            fix_btrfs "${label}" "${mountpoint}"
+            rvalue=$?
+        fi
+        rm -f "${lock}"
+    fi
+}
+
+
+system_check() {
+    if ! [ -x "$(command -v btrfs)" ]; then
+        echo "Error, btrfs utilities not installed!"
+        return 1
+    fi
+    if [ "$(id -u)" -ne "0" ]
+    then
+        echo "Error, program not running as root!"
+        return 1
+    fi
+    return 0
+}
+
+
+# Program
+if [ "$0" == "${BASH_SOURCE[0]}" ]
+then
+    POSITIONAL=()
+    while [[ $# -gt 0 ]]
+    do
+        key="${1}"
+        case ${key} in
+            -h|--help)
+                usage
+                exit 0
+            ;;
+            *)
+                POSITIONAL+=("$1")  # save it in an array for later
+                shift               # past argument
+            ;;
+        esac
+    done
+    system_check || exit 1
+    if [ "${#POSITIONAL[@]}" -ne "2" ]
+    then
+          echo "Not enough parameters!. See usage."
+          exit 1
+    else
+          trap 'echo "Be patient"' SIGINT SIGTERM SIGKILL
+          run "${POSITIONAL[0]}" "${POSITIONAL[1]}"
+          exit $?
+    fi
+fi
+
