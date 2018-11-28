@@ -1,0 +1,7 @@
+# media-volume-data@.service configuration
+
+LABEL="volume-data"
+SUBVOLS="--subvol data:/data"
+
+# Only for subvols
+MOUNT_OPTS="defaults,noatime,nodiratime"

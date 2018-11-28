@@ -1,0 +1,24 @@
+[Unit]
+Description=Formats /%P volume on /%I device
+StopWhenUnneeded=true
+After=%i.device
+Requires=%i.device
+ConditionFileIsExecutable=/bin/btrfs-manage-raid
+Before=docker.service docker-compose.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=root
+WorkingDirectory=/tmp
+Environment=LABEL=%p
+Environment=SUBVOL=
+EnvironmentFile=-/etc/default/volume-data
+Environment=MOUNTPOINT=/%P
+Environment=DEVICE=/%I
+ExecStart=/bin/btrfs-manage-raid --force "${LABEL}" "${MOUNTPOINT}" "${DEVICE}" ${SUBVOL}
+
+# How it works?
+# Automatically with systemd when it generates the device/mount units from fstab, put an entry in fstab like:
+# defaults,noatime,nodiratime,x-systemd.after=/dev/sda,x-systemd.after=/dev/sdb,x-systemd.after=btrfs-volume-data@dev-sda.service,x-systemd.after=btrfs-volume-data@dev-sdb.service
+# More info: https://copyninja.info/blog/systemd_automount_entry.html
