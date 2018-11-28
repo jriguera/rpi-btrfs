@@ -3,7 +3,7 @@ set -o pipefail  # exit if pipe command fails
 [ -z "$DEBUG" ] || set -x
 
 PROGRAM=${PROGRAM:-$(basename "${BASH_SOURCE[0]}")}
-MOUNT_OPTS=${MOUNT_OPTS:-"defaults,noatime,nodiratime"}
+MOUNT_OPTS=${MOUNT_OPTS:-"defaults,noatime"}
 
 
 usage() {
