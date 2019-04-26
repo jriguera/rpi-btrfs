@@ -1,1 +1,2 @@
-ACTION=="add", KERNEL=="sd[a-b]", SUBSYSTEM=="block", ATTR{removable}=="1", TAG+="systemd"
+ACTION=="add", KERNEL=="sda", SUBSYSTEM=="block", ATTR{removable}=="1", TAG+="systemd", ENV{SYSTEMD_WANTS}="volume-data@dev-sda.service"
+ACTION=="add", KERNEL=="sdb", SUBSYSTEM=="block", ATTR{removable}=="1", TAG+="systemd", ENV{SYSTEMD_WANTS}="volume-data@dev-sdb.service"
