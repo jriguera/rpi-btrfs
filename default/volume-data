@@ -2,6 +2,7 @@
 
 LABEL="volume-data"
 SUBVOLS="--subvol data:/data"
+DATA_LABEL="data"
 
 # Only for subvols
 MOUNT_OPTS="defaults,noatime,nodiratime"

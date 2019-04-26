@@ -1,0 +1,24 @@
+[Unit]
+Description=Format /%P volume on /%I device
+StopWhenUnneeded=true
+DefaultDependencies=false
+ConditionFileIsExecutable=/bin/btrfs-manage-raid
+After=%i.device
+Requisite=%i.device
+BindsTo=%i.device
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=root
+WorkingDirectory=/tmp
+Environment=LABEL=%p
+Environment=SUBVOL=
+EnvironmentFile=-/etc/default/%p
+Environment=MOUNTPOINT=/media/%p
+Environment=DEVICE=/%I
+ExecStart=/bin/btrfs-manage-raid --force "${LABEL}" "${MOUNTPOINT}" "${DEVICE}" $SUBVOLS
+StandardOutput=journal
+
+[Install]
+WantedBy=%i.device

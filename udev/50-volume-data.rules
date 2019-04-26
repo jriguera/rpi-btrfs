@@ -1,0 +1,1 @@
+ACTION=="add", KERNEL=="sd[a-b]", SUBSYSTEM=="block", ATTR{removable}=="1", TAG+="systemd"
