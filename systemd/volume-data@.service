@@ -21,4 +21,5 @@ ExecStart=/bin/btrfs-manage-raid --force "${LABEL}" "${MOUNTPOINT}" "${DEVICE}" 
 StandardOutput=journal
 
 [Install]
-WantedBy=%i.device
+WantedBy=%i.device btrfs-raid.target
+

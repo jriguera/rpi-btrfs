@@ -1,0 +1,6 @@
+[Unit]
+Description=Btrfs raid management
+StopWhenUnneeded=true
+DefaultDependencies=false
+ConditionFileIsExecutable=/bin/btrfs-manage-raid
+
