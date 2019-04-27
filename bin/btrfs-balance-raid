@@ -61,6 +61,7 @@ fix_btrfs() {
 
     devices=($(blkid -n btrfs -o device -t LABEL="${label}"))
     if [ "${#devices[@]}" -lt "2" ]
+    then
         echo "* ERROR, at least 2 devices are needed for RAID1!"
         return 1
     else
@@ -110,7 +111,8 @@ run() {
 
 
 system_check() {
-    if ! [ -x "$(command -v btrfs)" ]; then
+    if ! [ -x "$(command -v btrfs)" ]
+    then
         echo "Error, btrfs utilities not installed!"
         return 1
     fi
