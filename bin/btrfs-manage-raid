@@ -297,7 +297,7 @@ run() {
     fi
 
     # Be sure everything is mounted
-    mount -a
+    #mount -a
     return ${rvalue}
 }
 
