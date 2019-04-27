@@ -8,7 +8,7 @@ PROGRAM_LOCK=${PROGRAM_LOCK:-/tmp/$PROGRAM.lock}
 usage() {
     cat <<EOF
 Usage:
-    $PROGRAM [-h] <mountpoint> <label>
+    $PROGRAM [-h] <label> <mountpoint>
 
 This program tries to rebalance the Btrfs the data. It is assuming the device
 is already formated for the RAID 1 group and for some reason it got unbalanced, e.g.
