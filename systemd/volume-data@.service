@@ -6,6 +6,7 @@ ConditionFileIsExecutable=/bin/btrfs-manage-raid
 After=%i.device
 Requisite=%i.device
 BindsTo=%i.device
+Before=btrfs-rebalance@%p.service
 
 [Service]
 Type=oneshot
