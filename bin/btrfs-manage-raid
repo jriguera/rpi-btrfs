@@ -295,9 +295,10 @@ run() {
     else
         rvalue=1
     fi
-
-    # Be sure everything is mounted
-    #mount -a
+    # Be sure everything is mounted. This script runs afer local-fs.target, so fstab-generator
+    # already defined all mount units and is not going to mount the new FS. "mount -a" does
+    # the trick (this is true for the 1st time the system boots)
+    mount -a || true
     return ${rvalue}
 }
 
