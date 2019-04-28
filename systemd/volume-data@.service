@@ -1,5 +1,5 @@
 [Unit]
-Description=Format /%P volume on /%I device
+Description=Format /%p volume on /%I device
 StopWhenUnneeded=true
 DefaultDependencies=false
 ConditionFileIsExecutable=/bin/btrfs-manage-raid
