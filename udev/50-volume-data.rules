@@ -1,1 +1,1 @@
-ACTION=="add", KERNEL=="sd*", SUBSYSTEM=="block", ATTR{removable}=="1", TAG+="systemd", ENV{SYSTEMD_WANTS}="volume-data@.service,btrfs-rebalance@volume-data.service"
+ACTION=="add", KERNEL=="sd*", SUBSYSTEM=="block", ATTR{removable}=="1", TAG+="systemd", ENV{SYSTEMD_WANTS}="volume-data@.service btrfs-rebalance@volume-data.service"
