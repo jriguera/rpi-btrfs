@@ -3,8 +3,11 @@ set -o pipefail  # exit if pipe command fails
 [ -z "$DEBUG" ] || set -x
 
 PROGRAM=${PROGRAM:-$(basename "${BASH_SOURCE[0]}")}
-MOUNT_OPTS=${MOUNT_OPTS:-"defaults,noatime"}
+LOCK_FILE="/var/run/${PROGRAM}.lock"
+LOCK_TIMEOUT=300
 
+MOUNT_OPTS=${MOUNT_OPTS:-"defaults,noatime"}
+SYSTEMCTL_RELOAD=${SYSTEMCTL_RELOAD:-1}
 
 usage() {
     cat <<EOF
@@ -32,7 +35,7 @@ Environment variables:
 
   MOUNT_OPTS: fstab mount options (Default: ${MOUNT_OPTS})
 
-(c) Jose Riguera, 2019 <jriguera@gmail.com>
+(c) Jose Riguera, 2020 <jriguera@gmail.com>
 EOF
 }
 
@@ -42,10 +45,12 @@ create_btrfs_mountpoint_fstab() {
     local mountpoint="${2}"
     local noauto="${3}"
     local subvol="${4}"
+    local extraopts="${5}"
 
     local entry
     local opts="${MOUNT_OPTS}"
-    [ "${noauto}" -eq "1" ] && opts="${opts},noauto"
+    [ "x${noauto}" == "x1" ] && opts="${opts},noauto"
+    [ -n "${extraopts}" ] && opts="${opts},${extraopts}"
 
     if ! [ -w "/etc/fstab" ]
     then
@@ -60,6 +65,7 @@ create_btrfs_mountpoint_fstab() {
     }' /etc/fstab)
     if [ -z "${entry}" ]
     then
+        # if entry is not in fstab we need to define a mount
         if [ -z "${subvol}" ]
         then
             echo "# Btrfs ${label}" >>/etc/fstab
@@ -89,7 +95,7 @@ create_btrfs_subvolume() {
     ) &
     wait $!
     rvalue=$?
-    if [ "${rvalue}" -ne "0" ]
+    if [[ ${rvalue} -ne 0 ]]
     then
         echo "* Creating subvolume ${name} ..."
         (
@@ -99,7 +105,7 @@ create_btrfs_subvolume() {
         wait $!
         rvalue=$?
     fi
-    [ -n "${mountpoint}" ] && create_btrfs_mountpoint_fstab "${label}" "${mountpoint}" "${noauto}" "${name}"
+    [ -n "${mountpoint}" ] && create_btrfs_mountpoint_fstab "${label}" "${mountpoint}" "${noauto}" "${name}" "x-systemd.requires-mounts-for=${root}"
     sync
     return ${rvalue}
 }
@@ -135,7 +141,7 @@ create_btrfs_subvolumes() {
         create_btrfs_subvolume "${root}" "${label}" "${mountpoint[0]}" "${noauto}" "${mountpoint[1]}" || rvalue=1
         counter=$((counter+1))
     done
-    [ "${mounted}" -eq "1" ] && umount "${root}"
+    [ "x${mounted}" -eq "x1" ] && umount "${root}"
     echo "* ${counter} subvolumes created."
     return ${rvalue}
 }
@@ -147,7 +153,7 @@ umount_btrfs() {
 
     local rvalue
 
-    if [ "${mounted}" -eq "1" ]
+    if [ "x${mounted}" == "x1" ]
     then
         echo "* Re-mounting Btrfs mountpoint '${mountpoint}' in normal mode ..."
         mount -o remount "${mountpoint}"
@@ -226,7 +232,7 @@ mkfs_btrfs() {
                 wait $!
                 rvalue=$?
                 # Delete (old) device
-                if [ "${rvalue}" -eq "0" ]
+                if [[ ${rvalue} -eq 0 ]]
                 then
                     # Get ID of device with Device size: 0
                     devicezero=$(btrfs device usage "${mountpoint}" -b 2>/dev/null | awk '/^\/dev/{
@@ -286,7 +292,7 @@ run() {
     fi
     if mkfs_btrfs "${label}" "${device}" "${mountpoint}" "${noauto}" "${force}"
     then
-        if [ "${#subvols[@]}" -gt "0" ]
+        if [[ ${#subvols[@]} -gt 0 ]]
         then
             create_btrfs_subvolumes "${mountpoint}" "${label}" "${noauto}" "${subvols[@]}"
             rvalue=$?
@@ -295,20 +301,56 @@ run() {
     else
         rvalue=1
     fi
-    # Be sure everything is mounted. This script runs afer local-fs.target, so fstab-generator
-    # already defined all mount units and is not going to mount the new FS. "mount -a" does
-    # the trick (this is true for the 1st time the system boots)
-    mount -a || true
+    if [ "x${SYSTEMCTL_RELOAD}" == "x1" ]
+    then
+        if ! systemctl cat "$(systemd-escape --path ${mountpoint}).mount" >/dev/null 2>&1
+        then
+            # Re-run systemd-fstab-generator
+            echo "* Reloading systemd to re-run systemd-fstab-generator ..."
+            systemctl daemon-reload
+            # /lib/systemd/system-generators/systemd-fstab-generator /run/systemd/generator '' ''
+        fi
+    fi
     return ${rvalue}
 }
 
 
+# Lock to avoid running multiple instances
+singleton() {
+    if ! exec 222<>"${LOCK_FILE}"
+    then
+        echo "* Error, cannot create/read lock file: ${LOCK_FILE}"
+        return 1
+    fi
+    # wait to get the lock
+    echo -n "* Taking lock (${LOCK_FILE}): "
+    while ! flock -n -x 222 && [[ ${LOCK_TIMEOUT} -gt 0 ]]
+    do
+        sleep 1
+        LOCK_TIMEOUT=$((LOCK_TIMEOUT - 1))
+        echo -n "."
+    done
+    if [[ ${LOCK_TIMEOUT} -lt 1 ]]
+    then
+        echo "error, pid=$(<${LOCK_FILE}) still running"
+        return 1
+    else
+        echo "ok"
+        echo $$ > "${LOCK_FILE}"
+        trap "rm -f ${LOCK_FILE}; echo DELETED" EXIT
+        return 0
+    fi
+}
+
+
 system_check() {
-    if ! [ -x "$(command -v btrfs)" ]; then
+    if ! [ -x "$(command -v btrfs)" ]
+    then
         echo "Error, btrfs utilities not installed!"
         return 1
     fi
-    if ! [ -x "$(command -v mkfs.btrfs)" ]; then
+    if ! [ -x "$(command -v mkfs.btrfs)" ]
+    then
         echo "Error, mkfs cannot create Btrfs filesystems!"
         return 1
     fi
@@ -356,14 +398,14 @@ then
         esac
     done
     system_check || exit 1
-    if [ "${#POSITIONAL[@]}" -ne "3" ]
+    if [[ ${#POSITIONAL[@]} -ne 3 ]]
     then
-          echo "Not enough parameters!. See usage."
-          exit 1
+        echo "Not enough parameters!. See usage."
+        exit 1
     else
-          trap 'echo "Be patient"' SIGINT SIGTERM SIGKILL
-          run "${POSITIONAL[0]}" "${POSITIONAL[1]}" "${POSITIONAL[2]}" "${FSTAB_NOAUTO}" "${MKFS_FORCE}" "${SUBVOLUMES[@]}"
-          exit $?
+        trap "echo 'Be patient, $@ is still running!'" SIGINT SIGTERM SIGKILL
+        singleton && run "${POSITIONAL[0]}" "${POSITIONAL[1]}" "${POSITIONAL[2]}" "${FSTAB_NOAUTO}" "${MKFS_FORCE}" "${SUBVOLUMES[@]}"
+        exit $?
     fi
 fi
 

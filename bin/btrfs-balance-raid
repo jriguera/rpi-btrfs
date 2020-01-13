@@ -3,7 +3,9 @@ set -o pipefail  # exit if pipe command fails
 [ -z "$DEBUG" ] || set -x
 
 PROGRAM=${PROGRAM:-$(basename "${BASH_SOURCE[0]}")}
-PROGRAM_LOCK=${PROGRAM_LOCK:-/tmp/$PROGRAM.lock}
+LOCK_FILE="/var/run/${PROGRAM}.lock"
+LOCK_TIMEOUT=300
+
 
 usage() {
     cat <<EOF
@@ -14,7 +16,7 @@ This program tries to rebalance the Btrfs the data. It is assuming the device
 is already formated for the RAID 1 group and for some reason it got unbalanced, e.g.
 temp disconnection.
 
-(c) Jose Riguera, 2019 <jriguera@gmail.com>
+(c) Jose Riguera, 2020 <jriguera@gmail.com>
 EOF
 }
 
@@ -32,7 +34,7 @@ balance_btrfs() {
     ) &
     wait $!
     rvalue=$?
-    if [ "${rvalue}" -ne "0" ]
+    if [ ${rvalue} -ne 0 ]
     then
         echo "* ERROR, Btrfs balance not successful!"
         return 1
@@ -60,7 +62,7 @@ fix_btrfs() {
     btrfs filesystem usage "${mountpoint}"
 
     devices=($(blkid -n btrfs -o device -t LABEL="${label}"))
-    if [ "${#devices[@]}" -lt "2" ]
+    if [[ ${#devices[@]} -lt 2 ]]
     then
         echo "* ERROR, at least 2 devices are needed for RAID1!"
         return 1
@@ -71,41 +73,30 @@ fix_btrfs() {
 }
 
 
-run() {
-    local label="${1}"
-    local mountpoint="${2}"
-
-    local rvalue=0
-
-    local lock="${PROGRAM_LOCK}"
-    local mypid=$$
-
-    if [ -r "${lock}" ]
+# Lock to avoid running multiple instances
+singleton() {
+    if ! exec 222<>"${LOCK_FILE}"
     then
-        echo "* Wait, wait ... It seems there is a lock file '${lock}'. Checking ..."
-        pid=$(cat "${lock}")
-        if ps -p ${pid} > /dev/null 2>&1
-        then
-            echo "* There is a rebalance process still running on with pid ${pid}."
-            return 0
-        else
-            echo "* Lock file '${lock}' exists, but no process wid pid ${pid}"
-            rm -f "${lock}"
-            echo "* Removed Lock file '${lock}'. Ready for next time!"
-        fi
+        echo "* Error, cannot create/read lock file: ${LOCK_FILE}"
+        return 1
+    fi
+    # wait to get the lock
+    echo -n "* Taking lock (${LOCK_FILE}): "
+    while ! flock -n -x 222 && [[ ${LOCK_TIMEOUT} -gt 0 ]]
+    do
+        sleep 1
+        LOCK_TIMEOUT=$((LOCK_TIMEOUT - 1))
+        echo -n "."
+    done
+    if [[ ${LOCK_TIMEOUT} -lt 1 ]]
+    then
+        echo "error, pid=$(<${LOCK_FILE}) still running"
+        return 1
     else
-        echo ${mypid} > "${lock}" 2>/dev/null
-        rvalue=$?
-        pid=$(cat "${lock}" 2>/dev/null)
-        if [ "$?" -ne "0" ] || [ "${rvalue}" -ne "0" ] || [ "${pid}" -ne "${mypid}" ]
-        then
-            error_log "Something went wrong writing pid to lock file '${lock}'." ${rvalue}
-        else
-            trap "finish ${lock}" SIGINT SIGTERM SIGKILL
-            fix_btrfs "${label}" "${mountpoint}"
-            rvalue=$?
-        fi
-        rm -f "${lock}"
+        echo "ok"
+        echo $$ > "${LOCK_FILE}"
+        trap "rm -f ${LOCK_FILE}; echo DELETED" EXIT
+        return 0
     fi
 }
 
@@ -146,12 +137,12 @@ then
     system_check || exit 1
     if [ "${#POSITIONAL[@]}" -ne "2" ]
     then
-          echo "Not enough parameters!. See usage."
-          exit 1
+        echo "Not enough parameters!. See usage."
+        exit 1
     else
-          trap 'echo "Be patient"' SIGINT SIGTERM SIGKILL
-          run "${POSITIONAL[0]}" "${POSITIONAL[1]}"
-          exit $?
+        trap "echo 'Be patient, $@ is still running!'" SIGINT SIGTERM SIGKILL
+        singleton && fix_btrfs "${POSITIONAL[0]}" "${POSITIONAL[1]}"
+        exit $?
     fi
 fi
 
