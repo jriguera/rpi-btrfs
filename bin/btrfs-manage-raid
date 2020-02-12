@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 set -o pipefail  # exit if pipe command fails
 [ -z "$DEBUG" ] || set -x
+# TODO: https://github.com/saltstack/salt/blob/master/salt/modules/btrfs.py
+
 
 PROGRAM=${PROGRAM:-$(basename "${BASH_SOURCE[0]}")}
 LOCK_FILE="/var/run/${PROGRAM}.lock"
 LOCK_TIMEOUT=300
 
 MOUNT_OPTS=${MOUNT_OPTS:-"defaults,noatime"}
-SYSTEMCTL_RELOAD=${SYSTEMCTL_RELOAD:-1}
+MOUNT_FORCE=${MOUNT_FORCE:-1}
 
 usage() {
     cat <<EOF
@@ -89,13 +91,19 @@ create_btrfs_subvolume() {
     local mountpoint="${5}"
 
     echo "* Checking if subvolume ${name} exists ..."
-    (
-        set -ex
-        btrfs subvolume show "${root}/${name}"
-    ) &
-    wait $!
-    rvalue=$?
-    if [[ ${rvalue} -ne 0 ]]
+    if [ -d "${root}/${name}" ]
+    then
+        (
+            set -ex
+            btrfs subvolume show "${root}/${name}"
+        ) &
+        wait $!
+        rvalue=$?
+    else
+        echo "* Subvolume not found!"
+        rvalue=1
+    fi
+    if [ ${rvalue} -ne 0 ]
     then
         echo "* Creating subvolume ${name} ..."
         (
@@ -141,7 +149,7 @@ create_btrfs_subvolumes() {
         create_btrfs_subvolume "${root}" "${label}" "${mountpoint[0]}" "${noauto}" "${mountpoint[1]}" || rvalue=1
         counter=$((counter+1))
     done
-    [ "x${mounted}" -eq "x1" ] && umount "${root}"
+    [ "x${mounted}" == "x1" ] && umount "${root}"
     echo "* ${counter} subvolumes created."
     return ${rvalue}
 }
@@ -152,11 +160,13 @@ umount_btrfs() {
     local mounted="${2}"
 
     local rvalue
+    local options
 
     if [ "x${mounted}" == "x1" ]
     then
         echo "* Re-mounting Btrfs mountpoint '${mountpoint}' in normal mode ..."
-        mount -o remount "${mountpoint}"
+        options=$(findmnt -o options -n -k -M "${mountpoint}" | sed 's/,degraded//;s/degraded,//')
+        mount -o "remount,{options}" "${mountpoint}"
         rvalue=$?
     else
         echo "* Umounting Btrfs mountpoint '${mountpoint}' ..."
@@ -199,7 +209,7 @@ mkfs_btrfs() {
     local cmd
     local devicezero
 
-    currentlabel=$(btrfs filesystem show "${label}" 2>/dev/null | awk '/Label:/{ gsub(/\047/, "", $2); print $2; }')
+    currentlabel="$(btrfs filesystem show --all-devices "${label}" 2>/dev/null | awk '/Label:/{ gsub(/\047/, "", $2); print $2; }')"
     if [ "${currentlabel}" != "${label}" ]
     then
         cmd="mkfs -t btrfs -L ${label} ${device}"
@@ -224,7 +234,7 @@ mkfs_btrfs() {
                 (
                     set -ex
                     {
-                        btrfs device add "${device}" "${mountpoint}"
+                        btrfs device add -f "${device}" "${mountpoint}"
                         btrfs balance start --full-balance -v -f -sconvert=raid1 -dconvert=raid1 -mconvert=raid1 "${mountpoint}"
                         btrfs device usage "${mountpoint}"
                     }
@@ -301,14 +311,12 @@ run() {
     else
         rvalue=1
     fi
-    if [ "x${SYSTEMCTL_RELOAD}" == "x1" ]
+    if [ "x${MOUNT_FORCE}" == "x1" ]
     then
-        if ! systemctl cat "$(systemd-escape --path ${mountpoint}).mount" >/dev/null 2>&1
+        if ! findmnt -k -M "${mountpoint}" >/dev/null 2>&1
         then
-            # Re-run systemd-fstab-generator
-            echo "* Reloading systemd to re-run systemd-fstab-generator ..."
-            systemctl daemon-reload
-            # /lib/systemd/system-generators/systemd-fstab-generator /run/systemd/generator '' ''
+            echo "* Mounting ${mountpoint}!"
+            mount -a -t btrfs
         fi
     fi
     return ${rvalue}
@@ -337,7 +345,7 @@ singleton() {
     else
         echo "ok"
         echo $$ > "${LOCK_FILE}"
-        trap "rm -f ${LOCK_FILE}; echo DELETED" EXIT
+        trap "rm -f ${LOCK_FILE}" EXIT
         return 0
     fi
 }
