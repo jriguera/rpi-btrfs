@@ -1,28 +1,33 @@
 [Unit]
-Description=Format /%p volume on /%I device
-StopWhenUnneeded=true
-DefaultDependencies=false
+Description=Data btrfs volume /%p on /%I device
+StopWhenUnneeded=yes
+DefaultDependencies=no
 ConditionFileIsExecutable=/bin/btrfs-manage-raid
+# Skip this unit if the user wants the device for
+# a different purpose
+ConditionKernelCommandLine=!btrs-raid-data-ignore=/%I
+#JobTimeoutSec=15
 After=%i.device
-Requisite=%i.device
 BindsTo=%i.device
-Before=btrfs-rebalance@%p.service
+Before=%p.mount btrfs-rebalance@%p.service
 # On purpose, to force a reboot by the user if the device was introduced 
 # when system was up and running
-Before=local-fs.target sysinit.target
+ConditionPathExists=!/var/run/docker.sock
 
 [Service]
 Type=oneshot
-RemainAfterExit=yes
 User=root
+RemainAfterExit=no
 WorkingDirectory=/tmp
 Environment=LABEL=%p
 EnvironmentFile=-/etc/default/%p
 Environment=MOUNTPOINT=/media/%p
 Environment=DEVICE=/%I
 ExecStart=/bin/btrfs-manage-raid --force "${LABEL}" "${MOUNTPOINT}" "${DEVICE}" $SUBVOLS
-StandardOutput=journal
+#StandardOutput=journal
+StandardOutput=file:/var/log/%N.log
 
 [Install]
 WantedBy=%i.device btrfs-raid.target
+
 

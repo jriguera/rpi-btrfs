@@ -1,0 +1,31 @@
+[Unit]
+Description=Data btrfs raid rebalance on /%i
+DefaultDependencies=no
+StopWhenUnneeded=yes
+After=local-fs.target
+Before=shutdown.target
+Before=sysinit.target
+Conflicts=shutdown.target
+RequiresMountsFor=/media/%i
+ConditionPathIsMountPoint=/media/%i
+ConditionFileIsExecutable=/bin/btrfs-balance-raid
+# On purpose, to force a reboot by the user if the device was introduced 
+# when system was up and running
+ConditionPathExists=!/var/run/docker.sock
+
+[Service]
+Type=oneshot
+RemainAfterExit=no
+User=root
+WorkingDirectory=/tmp
+Environment=LABEL=%i
+EnvironmentFile=-/etc/default/%i
+Environment=MOUNTPOINT=/media/%i
+ExecStart=/bin/btrfs-balance-raid "${LABEL}" "${MOUNTPOINT}"
+StandardOutput=journal
+#StandardOutput=file:/var/log/%N.log
+
+[Install]
+WantedBy=local-fs.target btrfs-raid.target
+DefaultInstance=btrfs-rebalance@volume-data.service
+
