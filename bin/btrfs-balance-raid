@@ -64,8 +64,8 @@ fix_btrfs() {
     devices=($(blkid -n btrfs -o device -t LABEL="${label}"))
     if [[ ${#devices[@]} -lt 2 ]]
     then
-        echo "* ERROR, at least 2 devices are needed for RAID1!"
-        return 1
+        echo "* WARN, at least 2 devices are needed for RAID1! skipping balance."
+        return 0
     else
         balance_btrfs "${mountpoint}" "${label}"
         return $?
