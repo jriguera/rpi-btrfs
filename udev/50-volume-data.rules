@@ -1,8 +1,5 @@
-# https://unix.stackexchange.com/questions/550301/udev-rule-parameter-for-systemd-template
-# ACTION=="add", KERNEL=="sda", SUBSYSTEM=="block", ATTR{removable}=="1", TAG+="systemd", ENV{SYSTEMD_WANTS}="volume-data@dev-sda.service btrfs-rebalance@volume-data.service"
-# ACTION=="add", KERNEL=="sdb", SUBSYSTEM=="block", ATTR{removable}=="1", TAG+="systemd", ENV{SYSTEMD_WANTS}="volume-data@dev-sdb.service btrfs-rebalance@volume-data.service"
-# ACTION=="add", KERNEL=="sdc", SUBSYSTEM=="block", ATTR{removable}=="1", TAG+="systemd", ENV{SYSTEMD_WANTS}="volume-data@dev-sdc.service btrfs-rebalance@volume-data.service"
-# ACTION=="add", KERNEL=="sdd", SUBSYSTEM=="block", ATTR{removable}=="1", TAG+="systemd", ENV{SYSTEMD_WANTS}="volume-data@dev-sdd.service btrfs-rebalance@volume-data.service"
-#
 SUBSYSTEM=="block", ACTION=="add", ATTR{removable}=="1", ENV{ID_TYPE}="disk", TAG+="systemd", PROGRAM="/usr/bin/systemd-escape -p --template=volume-data@.service $env{DEVNAME}", ENV{SYSTEMD_WANTS}+="%c btrfs-rebalance@volume-data.service"
+# Alternative
+#ACTION=="add", KERNEL=="sda", SUBSYSTEM=="block", ATTR{removable}=="1", TAG+="systemd", ENV{SYSTEMD_WANTS}="volume-data@dev-sda.service btrfs-rebalance@volume-data.service"
+#ACTION=="add", KERNEL=="sdb", SUBSYSTEM=="block", ATTR{removable}=="1", TAG+="systemd", ENV{SYSTEMD_WANTS}="volume-data@dev-sdb.service btrfs-rebalance@volume-data.service"
 
