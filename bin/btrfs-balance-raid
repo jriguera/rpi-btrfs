@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -o pipefail  # exit if pipe command fails
 [ -z "$DEBUG" ] || set -x
+export LC_ALL=C
 
 PROGRAM=${PROGRAM:-$(basename "${BASH_SOURCE[0]}")}
 LOCK_FILE="/var/run/${PROGRAM}.lock"

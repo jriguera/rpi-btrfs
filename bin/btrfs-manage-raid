@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 set -o pipefail  # exit if pipe command fails
 [ -z "$DEBUG" ] || set -x
-# TODO: https://github.com/saltstack/salt/blob/master/salt/modules/btrfs.py
-
+export LC_ALL=C
 
 PROGRAM=${PROGRAM:-$(basename "${BASH_SOURCE[0]}")}
 LOCK_FILE="/var/run/${PROGRAM}.lock"
@@ -236,7 +235,8 @@ mkfs_btrfs() {
                     {
                         btrfs device add -f "${device}" "${mountpoint}"
                         btrfs balance start --full-balance -v -f -sconvert=raid1 -dconvert=raid1 -mconvert=raid1 "${mountpoint}"
-                        btrfs device usage "${mountpoint}"
+                        btrfs fi usage "${mountpoint}" -m
+                        btrfs device usage "${mountpoint}" -m
                     }
                 ) &
                 wait $!
