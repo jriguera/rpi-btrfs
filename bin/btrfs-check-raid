@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+set -o pipefail  # exit if pipe command fails
+[ -z "$DEBUG" ] || set -x
+export LC_ALL=C
+
+PROGRAM=${PROGRAM:-$(basename "${BASH_SOURCE[0]}")}
+RATIO_USAGE=${RATIO_USAGE:-90}
+
+
+usage() {
+    cat <<EOF
+Usage:
+    $PROGRAM [-h] <mountpoint>
+
+This program checks Btrfs filesystem RAID status and/or usage
+
+(c) Jose Riguera, 2020 <jriguera@gmail.com>
+EOF
+}
+
+
+check_mountpoint() {
+    local mountpoint="${1}"
+
+    if ! findmnt -k -M "${mountpoint}" >/dev/null 2>&1
+    then
+        echo "ERROR, '${mountpoint}' not mounted!"
+        return 1
+    fi
+    return 0
+}
+
+
+check_usage() {
+    local mountpoint="${1}"
+    local ratio_check="${2}"
+
+    local free_mb=$(btrfs fi usage $mountpoint -m | sed -n 's/.*estimated.*(min: \([0-9\.]\+\).*)/\1/p')
+    local total_size_mb=$(btrfs fi usage $mountpoint -m | sed -n 's/.*Device size:.* \([0-9\.]\+\).*/\1/p')
+    local data_ratio=$(btrfs fi usage $mountpoint -m | sed -n 's/.*Data ratio:.* \([0-9\.]\+\)/\1/p')
+    local trigger=$(bc <<< "scale=2; (100-${ratio_check})*${total_size_mb}/${data_ratio}/100")
+
+    btrfs fi usage $mountpoint -m
+    echo
+    if (( $(bc -l <<< "${trigger} >= ${free_mb}") ))
+    then
+        echo "WARN, Usage above ${ratio_check}%: ${trigger} >= ${free_mb}"
+        return 1
+    fi
+    return 0
+}
+
+
+check_fs() {
+    local mountpoint="${1}"
+
+    echo "Device stats:"
+    if ! btrfs device stats --check --reset ${mountpoint}
+    then
+        echo
+        echo "WARN, Device IO errors"
+        return 1
+    fi
+    return 0
+}
+
+
+scrub_fs() {
+    local mountpoint="${1}"
+
+    btrfs scrub start -Br ${mountpoint}
+}
+
+
+# Program
+if [ "$0" == "${BASH_SOURCE[0]}" ]
+then
+    POSITIONAL=()
+    while [[ $# -gt 0 ]]
+    do
+        key="${1}"
+        case ${key} in
+            -h|--help)
+                usage
+                exit 0
+            ;;
+            *)
+                POSITIONAL+=("$1")  # save it in an array for later
+                shift               # past argument
+            ;;
+        esac
+    done
+    if [ "${#POSITIONAL[@]}" -ne "1" ]
+    then
+        echo "Incorrect number of parameters!. See usage."
+        exit 1
+    else
+        trap "echo 'Be patient, $@ is still running!'" SIGINT SIGTERM SIGKILL
+        check_mountpoint "${POSITIONAL[0]}" && \
+        check_usage "${POSITIONAL[0]}" "${RATIO_USAGE}" && \
+        check_fs "${POSITIONAL[0]}" && \
+        echo -e "\nBtrfs FS ${POSITIONAL[0]} OK"
+        exit $?
+    fi
+fi
+
