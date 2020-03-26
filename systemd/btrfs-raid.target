@@ -3,9 +3,6 @@ Description=Data btrfs volume (raid) management
 DefaultDependencies=no
 Before=confinit.target
 ConditionKernelCommandLine=!btrs-raid-ignore
-# On purpose, to force a reboot by the user if the device was introduced 
-# when system was up and running
-ConditionPathExists=!/var/run/docker.sock
 
 [Install]
 WantedBy=local-fs-pre.target
